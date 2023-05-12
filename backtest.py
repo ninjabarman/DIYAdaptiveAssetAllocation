@@ -3,14 +3,14 @@ from os.path import exists
 import numpy as np
 import pandas as pd
 from pyrb import RiskBudgeting
-from functools import reduce
 
 from yahoo_data import ASSET_PRICES_FILE, DATA_DIR, get_tickers
 
-START_DATE = "1993-04-28"
+DEFAULT_START_DATE = "1993-04-28"
 
-END_DATE = "2022-11-10"
+DEFAULT_END_DATE = "2022-11-10"
 
+#  [Risk weight for stocks, bonds, and commodities]
 POLICY_RISK_BUDGET = [.8, .1, .1]
 
 TARGET_WEIGHTS_FILE = f"{DATA_DIR}/target_weights.csv"
