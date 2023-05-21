@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from functools import lru_cache
 from os.path import exists
 
 import pandas as pd
@@ -52,10 +53,6 @@ def download_asset_class_data_yahoo():
         print(data.head())
 
 
+@lru_cache(maxsize=None)
 def get_tickers():
     return [asset["ticker"] for asset in asset_data_config]
-
-def get_months(start_date, end_date):
-    start_date = datetime.strptime(start_date, '%Y-%m-%d')
-    end_date = datetime.strptime(end_date, '%Y-%m-%d')
-    return [(d.month, d.year) for d in rrule(MONTHLY, dtstart=start_date, until=end_date)]
