@@ -23,7 +23,6 @@ def load_df():
 def calculate_portfolio_returns(look_back_period=60):
     st = time.time()
     df = load_df()
-    df = load_df()
     df[ASSET_RETURNS] = df[TICKERS].pct_change()
     df[TSMOM] = df[ASSET_RETURNS].shift(21).rolling("231D").apply(lambda x: (1 + x).prod() - 1, raw=True)
     df[RISK_WEIGHTS] = df[TSMOM].apply(lambda row: risk_weight(row), axis=1, result_type='expand', raw=True)
@@ -31,13 +30,12 @@ def calculate_portfolio_returns(look_back_period=60):
     df = df.dropna()
     df[CASH_WEIGHTS] = df[RISK_WEIGHTS + COVARIANCES].apply(lambda row: cash_weights(row), axis=1, result_type='expand')
     df = df.dropna()
-    print(df[CASH_WEIGHTS])
-    df = df.dropna()
     df[PORTFOLIO_RETURNS] = (df[ASSET_RETURNS].to_numpy() * df[CASH_WEIGHTS].shift(-1).to_numpy()).sum(axis=1)
     df[PORTFOLIO_PRICE_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
     calc_stats(df[PORTFOLIO_PRICE_RELATIVE]).display()
     et = time.time()
     print(f"Took {et - st} seconds to backtest the portfolio")
+    return df
 
 
 def risk_weight(row):
