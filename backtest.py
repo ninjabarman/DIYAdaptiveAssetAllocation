@@ -1,6 +1,6 @@
 import time
 
-from ffn import calc_stats
+#from ffn import calc_stats
 from pyrb import RiskBudgeting
 
 from portfolio import *
@@ -36,7 +36,7 @@ def calculate_portfolio_returns(look_back_period=60):
     df[PORTFOLIO_TURNOVER] = returns["Two.Way.Turnover"]
     df[PORTFOLIO_PRICE_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
     df.to_csv(f"{DATA_DIR}/portfolio.csv")
-    calc_stats(df[PORTFOLIO_PRICE_RELATIVE]).display()
+    #calc_stats(df[PORTFOLIO_PRICE_RELATIVE]).display()
     et = time.time()
     print(f"Took {et - st} seconds to backtest the portfolio")
     return df

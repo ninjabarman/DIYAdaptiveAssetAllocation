@@ -4,7 +4,6 @@ from datetime import date
 import numpy as np
 import pandas as pd
 import polars as pl
-from ffn import calc_stats
 
 from portfolio import return_portfolio
 from yahoo_data import ASSET_PRICES_FILE
@@ -53,11 +52,12 @@ def back_test_portfolio(tickers, risk_budget=None, start_date=date(1994, 1, 1),
 
     asset_returns = df.select(rets_exp).to_pandas()
     asset_weights = df.select(weights_exp).to_pandas()
+    asset_weights = asset_weights.rolling(355).mean()
     asset_returns["Date"] = pd.to_datetime(dates)
     asset_weights["Date"] = pd.to_datetime(dates)
     asset_returns.set_index("Date", inplace=True)
     asset_weights.set_index("Date", inplace=True)
-
+    print(asset_returns.skew())
     returns = return_portfolio(asset_returns, asset_weights, rebalance_on="D")
     print(f"Took {et - st} seconds to backtest the portfolio")
     return returns
@@ -101,3 +101,16 @@ def calculate_volatility(df, tickers, look_back=20):
     return df.with_columns([
         pl.col(f"{ticker}_Return").rolling_std(window_size=look_back).alias(f"{ticker}_Vol") for ticker in tickers
     ])
+
+
+
+'''
+def calculate_inverse_volatility_weights(df, tickers, look_back=20):
+    df = calculate_asset_returns(df, tickers)
+    df = calculate_volatility(df, tickers, look_back=look_back)
+    inv_volatilities = df.with_columns([
+        1 / pl.col(f"{ticker}_Vol")
+        for ticker in tickers
+    ])
+    sum_inv_volatilities = pl.sum(inv_volatilities * rb )
+'''

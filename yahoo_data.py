@@ -7,6 +7,8 @@ FRED_DATA_API_KEY = "6dae28976bcf93d722dee9cbf01bc41e"
 
 QUANDLE_API_KEY = "B2CpxbQrnjSYFzWUupPX"
 
+NASDAQ_KEY = "sxU6u1b7XNyNPPUFZrYo"
+
 DATA_DIR = "data_dir"
 
 ASSET_PRICES_FILE = f"{DATA_DIR}/asset_prices.csv"
@@ -26,6 +28,16 @@ asset_data_config = [
         "asset_class": "Commodities",
         "description": "Goldman Sachs Commodity Index",
         "ticker": "^SPGSCI"
+    },
+    {
+        "asset_class": "Real Estate",
+        "description": "MSCI US REIT INDEX",
+        "ticker": "^RMZ"
+    },
+    {
+        "asset_class": "Gold",
+        "description": "U.S. Global Investors Funds Gold and Precious Metals Fund ",
+        "ticker": "USERX"
     }
 ]
 
