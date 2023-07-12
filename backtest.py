@@ -1,101 +1,104 @@
+from itertools import combinations
 import time
 
-#from ffn import calc_stats
-from pyrb import RiskBudgeting
-
+from ffn import calc_stats
 from portfolio import *
-from yahoo_data import ASSET_PRICES_FILE, DATA_DIR, TICKERS
-
-TARGET_WEIGHTS_FILE = f"{DATA_DIR}/target_weights.csv"
-ASSET_RETURNS = [f"{ticker}_return" for ticker in TICKERS]
-RISK_WEIGHTS = [f"{ticker}_risk_weight" for ticker in TICKERS]
-CASH_WEIGHTS = [f"{ticker}_cash_weight" for ticker in TICKERS]
-TSMOM = [f"{ticker}_12_month_minus_1_month_return" for ticker in TICKERS]
-PORTFOLIO_RETURNS = "Daily Portfolio Returns"
-PORTFOLIO_PRICE_RELATIVE = "Portfolio Price Relative"
-COVARIANCES = [f"{ticker1}/{ticker2}" for ticker1 in TICKERS for ticker2 in TICKERS]
-PORTFOLIO_TURNOVER = "Portfolio Turnover"
+from constants import *
+from optimize import *
+import time
 
 
-def load_df():
+def load_df() -> pd.DataFrame:
     return pd.read_csv(ASSET_PRICES_FILE, index_col="Date", parse_dates=["Date"])
 
 
-def calculate_portfolio_returns(look_back_period=60):
-    st = time.time()
+
+def test_optimization_methods():
+    covariance_matrix = np.array(
+        [
+            [77.25607201, 4.95549419, -2.1582784],
+            [4.95549419, 73.87388998, -3.76609601],
+            [-2.1582784, -3.76609601, 259.46734795],
+        ]
+    )
+    cov = np.array([covariance_matrix])
+    vectorized_weights = minimum_variance_optimization(cov)
+    print(f"vectorized output once:\t{vectorized_weights}")
+    cov = np.tile(covariance_matrix, (5, 1, 1))
+    vectorized_weights = minimum_variance_optimization(cov)
+    print(f"vectorized output repeated:\t{vectorized_weights}")
+
+
+
+def calculate_portfolio_returns():
     df = load_df()
-    df[ASSET_RETURNS] = df[TICKERS].pct_change()
-    df[TSMOM] = df[ASSET_RETURNS].shift(21).rolling("231D").apply(lambda x: (1 + x).prod() - 1, raw=True)
-    df[RISK_WEIGHTS] = df[TSMOM].apply(lambda row: risk_weight(row), axis=1, result_type='expand', raw=True)
-    df[COVARIANCES] = df[ASSET_RETURNS].rolling(f"{look_back_period}D").cov().unstack()
-    df = df.dropna()
-    df[CASH_WEIGHTS] = df[RISK_WEIGHTS + COVARIANCES].apply(lambda row: cash_weights(row), axis=1, result_type='expand')
-    df = df.dropna()
-    returns = return_portfolio(df[ASSET_RETURNS], df[CASH_WEIGHTS], verbose=True)
+
+    # portfolio of n assets
+    n = df.shape[1]
+
+    # calculate daily returns
+    returns = df.pct_change().dropna()
+
+    # calculate daily annualized volatilities
+    vols = returns.rolling(f"21D").std()
+    vols.columns = ASSET_VOLATILITIES
+
+    # calculate linear weighted correlations
+    window_sizes = [21, 63, 126, 252]
+    look_back_weights = [12, 4, 2, 1]
+
+    corrs = pd.DataFrame(index=returns.index[252:])
+
+    # first calculate the correlations for each window size
+    for window_size, weight in zip(window_sizes, look_back_weights):
+        window_size_corrs = returns.rolling(f"{window_size}D").corr().unstack() / weight
+        window_size_corrs.columns = [
+            f"{ticker1}_{ticker2}_{window_size}D_corr"
+            for ticker1, ticker2 in window_size_corrs.columns
+        ]
+        corrs = corrs.join(window_size_corrs)
+    corrs = corrs.dropna()
+
+    # then calculate the weighted average of the correlations
+    correlations = pd.DataFrame(index=corrs.index)
+    for i, (ticker1, ticker2) in enumerate(
+        [(ticker1, ticker2) for ticker1 in TICKERS for ticker2 in TICKERS]
+    ):
+        # if the correlation is between the same asset, set it to 1
+        # to ensure that the covariance matrix is positive definite
+        if ticker1 == ticker2:
+            correlations[f"{ticker1}_{ticker2}_corr"] = np.ones(corrs.shape[0])
+        else:
+            correlations[f"{ticker1}_{ticker2}_corr"] = (
+                corrs.iloc[:, i::9].sum(axis=1) / 19
+            )
+    del corrs
+
+    # calculate covariance matrix from correlations and volatilities
+    cov = pd.DataFrame(index=correlations.index)
+    for ticker1 in TICKERS:
+        for ticker2 in TICKERS:
+            cov[f"{ticker1}_{ticker2}_cov"] = (
+                correlations[f"{ticker1}_{ticker2}_corr"]
+                * vols[f"{ticker1}_vol"]
+                * vols[f"{ticker2}_vol"]
+            )
+
+    cov = cov.dropna()
+    # calculate optimal weights for portfolio
+    start = time.time()
+    expected_returns = returns.rolling(f"63D").mean().iloc[252:].values
+
+    weights = risk_budget_optimization(cov.values.reshape((cov.shape[0], n, n)), expected_returns)
+    #weights = minimum_variance_optimization(cov.values.reshape((cov.shape[0], n, n)))
+    end = time.time()
+    print(f"it took {end - start} seconds to perform the rolling optimization")
+    df = df.iloc[253:]
+    df[CASH_WEIGHTS] = weights
+    returns = return_portfolio(returns, df[CASH_WEIGHTS], verbose=True, rebalance_on="D")
     df[PORTFOLIO_RETURNS] = returns["returns"]
     df[PORTFOLIO_TURNOVER] = returns["Two.Way.Turnover"]
-    df[PORTFOLIO_PRICE_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
-    df.to_csv(f"{DATA_DIR}/portfolio.csv")
-    #calc_stats(df[PORTFOLIO_PRICE_RELATIVE]).display()
-    et = time.time()
-    print(f"Took {et - st} seconds to backtest the portfolio")
+    df[PORTFOLIO_RETURNS_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
+    print(calc_stats(df[PORTFOLIO_RETURNS_RELATIVE]).display())
+    print(df[CASH_WEIGHTS].describe())
     return df
-
-
-def risk_weight(row):
-    max_value = row.max()
-    min_value = row.min()
-    new_row = [1 / 3 + 1 / 6 if value == max_value else 1 / 3 - 1 / 6 if value == min_value else 1 / 3 for value in row]
-    return new_row
-
-
-def cash_weights(row):
-    n = len(TICKERS)
-    cov = row[n:].array.reshape(3, 3)
-    rb = RiskBudgeting(cov, row[0:n])
-    rb.solve()
-    return list(rb.x)
-
-
-'''
-def vectorized_back_test():
-    st = time.time()
-    df = load_df()
-    n = len(df.columns)
-    risk_budget = np.array([1 / n] * n)
-    
-    df[ASSET_RETURNS] = df[TICKERS].pct_change().dropna()
-    df[CASH_WEIGHTS] = df[ASSET_RETURNS].rolling("60D").cov().dropna().groupby(level=0).apply(
-        lambda covariance: cash_weights(risk_budget, covariance))
-    df[PORTFOLIO_RETURNS] = return_portfolio(df[ASSET_RETURNS], df[CASH_WEIGHTS])["returns"]
-    df[PORTFOLIO_PRICE_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
-    
-    df[ASSET_RETURNS] = df[TICKERS].pct_change().dropna()
-    window_size = "60D"
-    cov_matrix = df[ASSET_RETURNS].rolling(window_size).cov()
-    cov_matrix = cov_matrix.dropna()
-    grouped_cov = cov_matrix.groupby(level=0)
-
-    # Define a function to compute the cash weights
-    def cash_weights(risk_budget, covariance_matrix):
-        inv_diag = np.diag(1 / np.sqrt(np.diag(covariance_matrix)))
-        normalized_cov = inv_diag.dot(covariance_matrix).dot(inv_diag)
-        weights = normalized_cov.dot(risk_budget)
-        weights = weights / np.sum(weights)
-        return weights
-
-    # Apply the cash_weights function to each group of covariance matrices
-    cash_weights_array = grouped_cov.apply(lambda x: cash_weights(risk_budget, x.values))
-
-    # Convert the resulting list of arrays into a pandas DataFrame
-    df[CASH_WEIGHTS] = pd.DataFrame.from_records(cash_weights_array, index=grouped_cov.groups)
-    returns = return_portfolio(df[ASSET_RETURNS], df[CASH_WEIGHTS], verbose=True)
-    df[PORTFOLIO_RETURNS] = returns["returns"]
-    df[PORTFOLIO_TURNOVER] = returns["Two.Way.Turnover"]
-    df[PORTFOLIO_PRICE_RELATIVE] = 1.0 * (1 + df[PORTFOLIO_RETURNS]).cumprod()
-    df.to_csv(f"{DATA_DIR}/portfolio.csv")
-    calc_stats(df[PORTFOLIO_PRICE_RELATIVE]).display()
-    et = time.time()
-    print(f"Took {et - st} seconds to backtest the portfolio")
-
-'''

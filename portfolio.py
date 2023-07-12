@@ -73,8 +73,8 @@ def compute_turnover(w):
     # add first rebalance, as we start with a non-invested portfolio
     # not exact if cash is a valid position since we should consider being 100% invested in cash
     w = pd.concat([w, pd.DataFrame(0, index=[w.index[0]], columns=w.columns)])
-    turnover = w.groupby(w.index).diff().abs().dropna(how='all').sum(axis=1)
-    turnover.name = 'Turnover'
+    turnover = w.groupby(w.index).diff().abs().dropna(how="all").sum(axis=1)
+    turnover.name = "Turnover"
 
     return turnover
 
@@ -82,8 +82,8 @@ def compute_turnover(w):
 def prepare_weights(R, weights=None, rebalance_on=None):
     # if no weights provided, create equal weight vector
     if weights is None:
-        weights = [1. / R.shape[1]] * R.shape[1]
-        #wn.warn("Weights not provided, assuming equal weight for rebalancing periods.")
+        weights = [1.0 / R.shape[1]] * R.shape[1]
+        # wn.warn("Weights not provided, assuming equal weight for rebalancing periods.")
     else:
         weights = weights.copy()
 
@@ -98,7 +98,9 @@ def prepare_weights(R, weights=None, rebalance_on=None):
 
     # error checking for same number of weights as assets
     if weights.shape[1] != R.shape[1]:
-        raise ValueError("Number of weights is unequal to number of assets. Correct this.")
+        raise ValueError(
+            "Number of weights is unequal to number of assets. Correct this."
+        )
 
     # if there's a row vector of weights, create a data frame with  the desired
     # rebalancing schedule --  also add in the very first date into the schedule
@@ -106,37 +108,38 @@ def prepare_weights(R, weights=None, rebalance_on=None):
         if rebalance_on is not None:
             ep = endpoints(R, on=rebalance_on)
             weights = pd.DataFrame(
-                np.tile(weights, (len(ep), 1)),
-                index=R.index[ep],
-                columns=R.columns
+                np.tile(weights, (len(ep), 1)), index=R.index[ep], columns=R.columns
             )
             # add first date if not already there
             if R.index[0] != weights.index[0]:
                 first_weights = pd.DataFrame(
-                    [weights.iloc[0, :].values],
-                    index=[R.index[0]],
-                    columns=R.columns
+                    [weights.iloc[0, :].values], index=[R.index[0]], columns=R.columns
                 )
                 weights = pd.concat([first_weights, weights], axis=0)
         else:
             # in that case, we assume, as in R implementation, that one invests
             # one day before so that we dont lose 1 trading date
-            R = pd.concat([
-                pd.DataFrame(0, columns=R.columns,
-                             index=[R.index[0] - pd.Timedelta(1, "d")]),
-                R
-            ])
+            R = pd.concat(
+                [
+                    pd.DataFrame(
+                        0, columns=R.columns, index=[R.index[0] - pd.Timedelta(1, "d")]
+                    ),
+                    R,
+                ]
+            )
             weights.index = [R.index[0]]
 
         weights.index.name = R.index.name
 
     if weights.isna().sum().sum() > 0:
         weights.fillna(0, inplace=True)
-        #wn.warn("NAs detected in weights. Imputing with zeroes.")
+        # wn.warn("NAs detected in weights. Imputing with zeroes.")
 
     residual_weights = 1 - weights.sum(axis=1)
     if abs(residual_weights).sum() != 0:
-        print("One or more periods do not have investment equal to 1. Creating residual weights.")
+        print(
+            "One or more periods do not have investment equal to 1. Creating residual weights."
+        )
         weights["Residual"] = residual_weights
         R["Residual"] = 0
 
@@ -209,10 +212,10 @@ def return_portfolio(R, weights=None, verbose=True, rebalance_on=None):
     portf_returns, bop_weights, eop_weights, risk_contribution = [], [], [], []
     for i in range(date_idx.shape[0]):
         try:
-            subset = Rv[date_idx[i]:date_idx[i + 1] + 1]
+            subset = Rv[date_idx[i] : date_idx[i + 1] + 1]
         except:
             # last rebalance
-            subset = Rv[date_idx[i]:]
+            subset = Rv[date_idx[i] :]
 
         subset_out = compute_weights_and_returns(subset, Wv[i])
         risk_contribution.append(compute_risk_contribution(subset, Wv[i]))
@@ -230,52 +233,80 @@ def return_portfolio(R, weights=None, verbose=True, rebalance_on=None):
     eop_weights = np.concatenate(eop_weights)
 
     if not verbose:
-        return pd.Series(portf_returns, index=R.loc[weights.index[0]:].index, name='return'), weights, R
+        return (
+            pd.Series(
+                portf_returns, index=R.loc[weights.index[0] :].index, name="return"
+            ),
+            weights,
+            R,
+        )
 
     # using numpy, we have a problem because we dont have dates on axis
     increment = np.array([0] + list(range(weights.shape[0] - 1)))
     date_idx_eop = date_idx + increment  # duplicate position, first occurence
     duplicate_positions = date_idx_eop + np.array(
-        [0] + [1] * (weights.shape[0] - 1))  # duplicate position, second occurence
+        [0] + [1] * (weights.shape[0] - 1)
+    )  # duplicate position, second occurence
     pos = np.unique(np.concatenate((date_idx_eop, duplicate_positions)))
     pos = pos - date_idx[0]  # because we truncate data before first rebalance
     weights_at_rebalance = eop_weights[pos]
     # reconstruct pd.DataFrame to use Groupby on dates
     weights_at_rebalance = pd.DataFrame(
-        weights_at_rebalance, columns=weights.columns,
-        index=[
-                  weights.index[0]
-              ] + list(np.sort(weights.index[1:].to_list() * 2))
+        weights_at_rebalance,
+        columns=weights.columns,
+        index=[weights.index[0]] + list(np.sort(weights.index[1:].to_list() * 2)),
     )
     turnover = compute_turnover(weights_at_rebalance)
     # droping duplicate indices due to loop in case of multiple rebalancing
     # need to keep them to compute turnover
     eop_weights = np.delete(eop_weights, (date_idx_eop - date_idx[0])[1:], axis=0)
-    pct_contribution = np.multiply(Rv[date_idx[0]:], bop_weights)
+    pct_contribution = np.multiply(Rv[date_idx[0] :], bop_weights)
     cum_returns = (1 + portf_returns).cumprod()
     eop_value = np.multiply(
-        eop_weights,
-        np.tile(cum_returns, (eop_weights.shape[1], 1)).T
+        eop_weights, np.tile(cum_returns, (eop_weights.shape[1], 1)).T
     )
     bop_value = np.multiply(
         bop_weights,
-        np.tile(cum_returns / (1 + portf_returns), (bop_weights.shape[1], 1)).T
+        np.tile(cum_returns / (1 + portf_returns), (bop_weights.shape[1], 1)).T,
     )
 
     # recreate pd.DataFrames
-    date_index = R.loc[weights.index[0]:].index
+    date_index = R.loc[weights.index[0] :].index
     cols = weights.columns
-    portf_returns = pd.Series(portf_returns, index=date_index, name='return')
+    portf_returns = pd.Series(portf_returns, index=date_index, name="return")
     pct_contribution = pd.DataFrame(pct_contribution, index=date_index, columns=cols)
     bop_weights = pd.DataFrame(bop_weights, index=date_index, columns=cols)
     eop_weights = pd.DataFrame(eop_weights, index=date_index, columns=cols)
     bop_value = pd.DataFrame(bop_value, index=date_index, columns=cols)
     eop_value = pd.DataFrame(eop_value, index=date_index, columns=cols)
-    risk_contribution = pd.DataFrame(risk_contribution, index=weights.index, columns=cols)
-    out = [portf_returns, pct_contribution, bop_weights, eop_weights,
-           bop_value, eop_value, turnover, risk_contribution]
-    out = {k: v for k, v in zip(['returns', 'contribution', 'BOP.Weight',
-                                 'EOP.Weight', 'BOP.Value', 'EOP.Value',
-                                 'Two.Way.Turnover', 'risk_contribution'], out)}
+    risk_contribution = pd.DataFrame(
+        risk_contribution, index=weights.index, columns=cols
+    )
+    out = [
+        portf_returns,
+        pct_contribution,
+        bop_weights,
+        eop_weights,
+        bop_value,
+        eop_value,
+        turnover,
+        risk_contribution,
+    ]
+    out = {
+        k: v
+        for k, v in zip(
+            [
+                "returns",
+                "contribution",
+                "BOP.Weight",
+                "EOP.Weight",
+                "BOP.Value",
+                "EOP.Value",
+                "Two.Way.Turnover",
+                "risk_contribution",
+            ],
+            out,
+        )
+    }
 
     return out
