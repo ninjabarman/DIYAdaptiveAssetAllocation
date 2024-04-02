@@ -32,7 +32,7 @@ ASSET_DATA_CONFIG = [
         "ticker": "^SPGSCI",
     }
 ]
-TICKERS = [asset["ticker"] for asset in ASSET_DATA_CONFIG]
+TICKERS = [asset["ticker"] for asset in ASSET_DATA_CONFIG][:2]
 ASSET_PRICES_FILE = f"{DATA_DIR}/asset_prices.csv"
 TARGET_WEIGHTS_FILE = f"{DATA_DIR}/target_weights.csv"
 ASSET_RETURNS = [f"{ticker}_return" for ticker in TICKERS]

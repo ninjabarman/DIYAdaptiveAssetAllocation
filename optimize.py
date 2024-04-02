@@ -1,6 +1,6 @@
 import numpy as np
 from numba import guvectorize, float64
-
+from scipy.optimize import minimize
 
 @guvectorize(
     [(float64[:, :, :], float64[:, :])],
@@ -37,27 +37,58 @@ def kelley_optimization(
 ):
     for k in range(covariance_matrix.shape[0]):
         inv_cov_matrix = np.linalg.inv(covariance_matrix[k,])
-        w = np.dot(inv_cov_matrix, expected_returns[k, ]) / np.sum(
-            np.dot(inv_cov_matrix, expected_returns[k, ])
+        w = np.dot(inv_cov_matrix, expected_returns[k,]) / np.sum(
+            np.dot(inv_cov_matrix, expected_returns[k,])
         )
         w[w < 0] = 0.0
         w /= np.sum(w)
-        weights[k] = w 
-        
-        
+        weights[k] = w
+
 
 @guvectorize(
     [(float64[:, :, :], float64[:, :], float64[:, :])],
     "(k, n, n), (k, n) -> (k, n)",
     nopython=True,
     cache=True,
+    fastmath=True,
     target="parallel",
 )
-def risk_budget_optimization(covariance_matrix: np.ndarray, risk_budget:np.ndarray, weights: np.ndarray):
+def risk_budget_optimization(
+    covariance_matrix: np.ndarray, risk_budget: np.ndarray, weights: np.ndarray
+):
     for k in range(covariance_matrix.shape[0]):
         rb = risk_budget[k,] / np.sum(risk_budget[k,])
         inv_cov_matrix = np.linalg.inv(covariance_matrix[k,])
-        w = np.dot(inv_cov_matrix, rb) 
+        w = np.dot(inv_cov_matrix, rb)
         w[w < 0] = 0.0
         w /= np.sum(w)
         weights[k] = w
+
+
+def maximum_informatation_ratio_optimization(
+    beta: np.array, active_return: np.array, residual_risk: np.array, bounds=None
+) -> np.array:
+    
+    def objective(weights: np.array) -> np.array:
+        return -np.dot(weights, active_return) / np.sqrt(np.dot(weights, residual_risk))
+    
+    def weight_sum_constraint(weights):
+        return np.sum(weights) - 1.0
+    
+    if bounds is not None:
+        bounds = [(lower_bound, upper_bound) for lower_bound, upper_bound in bounds]
+    
+    initial_weights = np.ones_like(beta) / len(beta)
+    
+    result = minimize(
+        objective,
+        initial_weights,
+        method='SLSQP',
+        bounds=bounds,
+        constraints={'type': 'eq', 'fun': weight_sum_constraint}
+    )
+
+    # Get the optimal weights
+    weights = result.x
+
+    return weights
